@@ -1,5 +1,5 @@
 // app/index.tsx
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
@@ -8,16 +8,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CloudMoon, MoonStar } from 'lucide-react-native';
 import { DAILY_CONTENT } from '@/constants/dailyContent';
 
+
 // Hooks
 import { useTimings } from '@/hooks/useTimings';
 import { useAppStore } from '@/store/appStorage';
 import { useCountdown } from '@/hooks/useCountdown';
 
 const MENU_ITEMS = [
-  { id: '1', title: "Kur'an Meali", icon: 'book-outline', route: '/meal' },
+  { id: '1', title: "Ayarlar", icon: 'settings-outline', route: '/settings' },
   { id: '2', title: 'Esma-ul Husna', icon: 'moon-outline', route: '/esma' },
   { id: '3', title: 'Namaz Takibi', icon: 'checkmark-circle-outline', route: '/takip' },
-  { id: '4', title: 'Önemli Günler', icon: 'calendar-outline', route: '/gunler' },
+  { id: '4', title: 'Önemli Günler', icon: 'calendar-outline', route: '/importantDaysScreen' },
   { id: '5', title: 'Kıble', icon: 'compass-outline', route: '/qiblaScreen' },
   { id: '6', title: 'Zekat Hesabı', icon: 'calculator-outline', route: '/zekat' },
 ];
@@ -30,24 +31,34 @@ export default function Home() {
   const city = useAppStore((state) => state.city);
   const { timingsData, loading } = useTimings();
 
-  const { hours, minutes, seconds, nextPrayerLabel, activePrayerId } = useCountdown(timingsData?.timings);
+  // Get today's index (Date starts from 1, array index starts from 0)
+  const todayIndex = new Date().getDate() - 1;
+  const tomorrowIndex = todayIndex + 1;
+  
+  // Extract today's timings from the monthly array
+  const todayTimings = timingsData ? timingsData[todayIndex]?.timings : null;
+  const tomorrowTimings = timingsData ? timingsData[tomorrowIndex]?.timings : null;
 
+  const { hours, minutes, seconds, nextPrayerLabel, activePrayerId } = useCountdown(todayTimings, tomorrowTimings);
   // Map API data to our UI structure
   const getDynamicPrayerTimes = () => {
-    if (!timingsData || !timingsData.timings) return [];
-    const t = timingsData.timings;
+    if (!todayTimings) return [];
+    const t = todayTimings;
     
-    // 3. isActive durumunu activePrayerId ile eşleştir
+    // Helper function to remove timezone string like " (+03)" or " (EEST)"
+    const cleanTime = (timeStr: string) => timeStr ? timeStr.split(' ')[0] : '--:--';
+    
+    // 3. Map active status with activePrayerId
     return [
-      { id: '1', label: 'İmsak', time: t.Imsak, expoIcon: 'moon-outline', isActive: activePrayerId === '1' },
-      { id: '2', label: 'Güneş', time: t.Sunrise, expoIcon: 'sunny-outline', isActive: activePrayerId === '2' },
-      { id: '3', label: 'Öğle', time: t.Dhuhr, expoIcon: 'sunny', isActive: activePrayerId === '3' },
-      { id: '4', label: 'İkindi', time: t.Asr, expoIcon: 'partly-sunny-outline', isActive: activePrayerId === '4' },
-      { id: '5', label: 'Akşam', time: t.Maghrib, LucideIcon: CloudMoon, isActive: activePrayerId === '5' },
-      { id: '6', label: 'Yatsı', time: t.Isha, LucideIcon: MoonStar, isActive: activePrayerId === '6' },
+      { id: '1', label: 'İmsak', time: cleanTime(t.Imsak), expoIcon: 'moon-outline', isActive: activePrayerId === '1' },
+      { id: '2', label: 'Güneş', time: cleanTime(t.Sunrise), expoIcon: 'sunny-outline', isActive: activePrayerId === '2' },
+      { id: '3', label: 'Öğle', time: cleanTime(t.Dhuhr), expoIcon: 'sunny', isActive: activePrayerId === '3' },
+      { id: '4', label: 'İkindi', time: cleanTime(t.Asr), expoIcon: 'partly-sunny-outline', isActive: activePrayerId === '4' },
+      { id: '5', label: 'Akşam', time: cleanTime(t.Maghrib), LucideIcon: CloudMoon, isActive: activePrayerId === '5' },
+      { id: '6', label: 'Yatsı', time: cleanTime(t.Isha), LucideIcon: MoonStar, isActive: activePrayerId === '6' },
     ];
   };
-
+  
   const dynamicTimes = getDynamicPrayerTimes();
 
   // Show loading screen while fetching data
@@ -76,7 +87,7 @@ export default function Home() {
         <StatusBar style="light" />
         
         {/* SECTION 1: Top Area */}
-        <View className="bg-neutral-900 rounded-b-[40px] px-5 pt-2 pb-6">
+        <View className="bg-neutral-900 rounded-b-[40px] px-5 pt-4 pb-6">
         
             {/* Header */}
             <View className="flex-row justify-between items-center">
@@ -92,7 +103,7 @@ export default function Home() {
                 </View>
             </View>
 
-            {/* Countdown (Static for now) */}
+            {/* Countdown */}
             <View className="items-center mt-4">
                 <Text className="text-gray-300 text-md mb-3">{nextPrayerLabel}</Text>
                 <View className="flex-row items-center justify-center">
@@ -183,9 +194,6 @@ export default function Home() {
                         </Text>
                     </TouchableOpacity>
                 ))}
-                <TouchableOpacity className="bg-vakit-accent w-full rounded-2xl items-center py-4">
-                    <Text className="text-vakit-text font-medium">Daha Fazla {'>'}</Text>
-                </TouchableOpacity>
             </View>
         </View>
 

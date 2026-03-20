@@ -18,7 +18,13 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION", "BODY_SENSORS"],
+      "permissions": [
+        "ACCESS_FINE_LOCATION", 
+        "ACCESS_COARSE_LOCATION", 
+        "BODY_SENSORS",
+        "FOREGROUND_SERVICE",
+        "POST_NOTIFICATIONS"
+      ],
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.ali_2003.namazvakit"

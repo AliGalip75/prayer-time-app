@@ -8,6 +8,7 @@ import * as NavigationBar from 'expo-navigation-bar';
 import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 import { useAppStore } from '@/store/appStorage';
+import * as Notifications from 'expo-notifications';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -36,6 +37,15 @@ export default function RootLayout() {
       // Make it reappear only when swiping up from the bottom edge
       NavigationBar.setBehaviorAsync('overlay-swipe');
     }
+    // Android için bildirim kanalı oluşturma
+    if (Platform.OS === 'android') {
+      Notifications.setNotificationChannelAsync('default', {
+        name: 'Namaz Vakitleri',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#10B981',
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -51,6 +61,7 @@ export default function RootLayout() {
     else if (hasCompletedOnboarding && inAuthGroup) {
       router.replace('/');
     }
+
   }, [hasCompletedOnboarding, segments, isStoreLoaded]);
 
   // Store yüklenene kadar boş bir ekran göster (Splash screen gibi düşünebilirsin)

@@ -2,50 +2,55 @@
 import { useState, useEffect } from 'react';
 import { fetchPrayerTimes } from '@/api/aladhan';
 import { useAppStore, storage } from '@/store/appStorage';
-// Import the notification scheduler
 import { schedulePrayerNotifications } from '@/utils/notifications';
+import * as Notifications from 'expo-notifications'; // 1. EKLENEN KISIM
 
 export const useTimings = () => {
   const city = useAppStore((state) => state.city);
+  const notificationsEnabled = useAppStore((state) => state.notificationsEnabled);
+  
   const [timingsData, setTimingsData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const getTimings = async () => {
       if (!city) return;
-      
       setLoading(true);
       
-      // Create a unique cache key for today and the selected city
-      const today = new Date().toDateString();
-      const cacheKey = `timings_${city}_${today}`;
+      const date = new Date();
+      const monthYear = `${date.getMonth() + 1}_${date.getFullYear()}`;
+      const cacheKey = `timings_monthly_${city}_${monthYear}`;
       
-      // Check local storage for cached data
+      let dataToUse = null;
       const cachedData = storage.getString(cacheKey);
       
       if (cachedData) {
-        const parsedData = JSON.parse(cachedData);
-        setTimingsData(parsedData);
-        // Schedule notifications using cached data
-        schedulePrayerNotifications(parsedData.timings, city);
-        setLoading(false);
-        return;
+        dataToUse = JSON.parse(cachedData);
+        setTimingsData(dataToUse);
+      } else {
+        const data = await fetchPrayerTimes(city);
+        if (data) {
+          dataToUse = data;
+          setTimingsData(dataToUse);
+          storage.set(cacheKey, JSON.stringify(data));
+        }
       }
 
-      // Fetch from API if cache is empty
-      const data = await fetchPrayerTimes(city);
-      if (data) {
-        setTimingsData(data);
-        // Save to MMKV cache
-        storage.set(cacheKey, JSON.stringify(data));
-        // Schedule notifications using fresh data
-        schedulePrayerNotifications(data.timings, city);
+      // 2. EKLENEN KISIM: Bildirim Şalteri Kontrolü
+      if (dataToUse) {
+        if (notificationsEnabled) {
+          schedulePrayerNotifications(dataToUse, city);
+        } else {
+          await Notifications.cancelAllScheduledNotificationsAsync();
+        }
       }
+      
       setLoading(false);
     };
 
     getTimings();
-  }, [city]);
+  // 3. EKLENEN KISIM: notificationsEnabled buraya eklendi
+  }, [city, notificationsEnabled]); 
 
   return { timingsData, loading };
 };

@@ -1,337 +1,205 @@
+// app/kible.tsx
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  Animated,
-  Easing,
-  TouchableOpacity,
-  ActivityIndicator,
-  Dimensions,
-} from 'react-native';
+import { View, Text, Animated, Easing, TouchableOpacity, ActivityIndicator, Dimensions } from 'react-native';
 import * as Location from 'expo-location';
-import { Magnetometer } from 'expo-sensors';
-import { Svg, Circle, Line, Path, Text as SvgText, G } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Circle, Path, G, Text as SvgText } from 'react-native-svg';
 
 const { width } = Dimensions.get('window');
-const COMPASS_SIZE = width * 0.82;
-const NEEDLE_LENGTH = COMPASS_SIZE * 0.38;
+const COMPASS_SIZE = width * 0.75;
+const KAABA_LAT = 21.422487;
+const KAABA_LNG = 39.826206;
 
-const KAABA_LAT = 21.4225;
-const KAABA_LNG = 39.8262;
-
+// Matematiksel Kıble Açısı Hesaplama (Değiştirmedik, doğru çalışıyor)
 function calcQiblaAngle(lat: number, lng: number): number {
-  const φ1 = (lat * Math.PI) / 180;
-  const φ2 = (KAABA_LAT * Math.PI) / 180;
-  const Δλ = ((KAABA_LNG - lng) * Math.PI) / 180;
-  const y = Math.sin(Δλ);
-  const x = Math.cos(φ1) * Math.tan(φ2) - Math.sin(φ1) * Math.cos(Δλ);
+  const phi1 = (lat * Math.PI) / 180;
+  const phi2 = (KAABA_LAT * Math.PI) / 180;
+  const deltaLambda = ((KAABA_LNG - lng) * Math.PI) / 180;
+  const y = Math.sin(deltaLambda);
+  const x = Math.cos(phi1) * Math.tan(phi2) - Math.sin(phi1) * Math.cos(deltaLambda);
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
-function getMagnetometerAngle(mag: { x: number; y: number; z: number }): number {
-  return (Math.atan2(mag.y, mag.x) * (180 / Math.PI) + 360) % 360;
-}
-
-export default function QiblaScreen() {
+export default function KibleScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [qiblaAngle, setQiblaAngle] = useState<number | null>(null);
-  const [heading, setHeading] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [aligned, setAligned] = useState(false);
 
+  // Animasyon Değerleri
   const rotateAnim = useRef(new Animated.Value(0)).current;
-  const glowAnim = useRef(new Animated.Value(0)).current;
   const prevHeading = useRef(0);
-  const router = useRouter();
-  const insets = useSafeAreaInsets();
 
-  // Hizalanma animasyonu
-  useEffect(() => {
-    if (aligned) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(glowAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
-          Animated.timing(glowAnim, { toValue: 0.4, duration: 600, useNativeDriver: true }),
-        ])
-      ).start();
-    } else {
-      glowAnim.setValue(0);
-    }
-  }, [aligned]);
-
-  // Konum al
+  // 1. Konum İzni ve Kıble Açısını Bulma
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        setError('Konum izni reddedildi');
+        setError('Pusula için konum izni gerekiyor.');
         setLoading(false);
         return;
       }
       try {
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-        const lat = loc.coords.latitude;
-        const lng = loc.coords.longitude;
-        setLocation({ lat, lng });
-        setQiblaAngle(calcQiblaAngle(lat, lng));
+        setLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+        setQiblaAngle(calcQiblaAngle(loc.coords.latitude, loc.coords.longitude));
         setLoading(false);
-      } catch {
-        setError('Konum alınamadı');
+      } catch (err) {
+        setError('Konum alınamadı. Lütfen GPS\'i açın.');
         setLoading(false);
       }
     })();
   }, []);
 
-  // Pusula (manyetometre)
+  // 2. İşletim Sisteminin Filtrelenmiş Pusulasını Dinleme (Magnetometer yerine)
   useEffect(() => {
-    const sub = Magnetometer.addListener((data) => {
-      const angle = getMagnetometerAngle(data);
-      setHeading(angle);
+    let subscription: Location.LocationHeadingObject | any;
+    
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        subscription = await Location.watchHeadingAsync((headingData) => {
+          // trueHeading (Gerçek Kuzey) veya magHeading (Manyetik Kuzey)
+          const currentHeading = headingData.trueHeading >= 0 ? headingData.trueHeading : headingData.magHeading;
+          
+          // 360'dan 0'a geçerken pusulanın fırıldak gibi dönmesini engelleyen mantık
+          let diff = currentHeading - prevHeading.current;
+          if (diff > 180) diff -= 360;
+          if (diff < -180) diff += 360;
+          const newVal = prevHeading.current + diff;
+          prevHeading.current = newVal;
 
-      let diff = angle - prevHeading.current;
-      if (diff > 180) diff -= 360;
-      if (diff < -180) diff += 360;
-      const newVal = prevHeading.current + diff;
-      prevHeading.current = newVal;
+          Animated.timing(rotateAnim, {
+            toValue: newVal,
+            duration: 100,
+            easing: Easing.linear,
+            useNativeDriver: true,
+          }).start();
+        });
+      }
+    })();
 
-      Animated.timing(rotateAnim, {
-        toValue: newVal,
-        duration: 150,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }).start();
-    });
-    Magnetometer.setUpdateInterval(100);
-    return () => sub.remove();
+    return () => {
+      if (subscription && subscription.remove) subscription.remove();
+    };
   }, []);
 
-  // Hizalanma kontrolü
+  // 3. Kıbleye Hizalanma Kontrolü (Hassasiyet)
   useEffect(() => {
     if (qiblaAngle === null) return;
-    const needleDir = (qiblaAngle - heading + 360) % 360;
-    setAligned(needleDir < 5 || needleDir > 355);
-  }, [heading, qiblaAngle]);
+    // Cihazın baktığı yön ile kıble açısı arasındaki fark 3 dereceden azsa "Hizalandı" say
+    const currentHeading = prevHeading.current % 360;
+    const normalizedHeading = currentHeading < 0 ? currentHeading + 360 : currentHeading;
+    
+    const diff = Math.abs(normalizedHeading - qiblaAngle);
+    const isAligned = diff < 3 || diff > 357; 
+    setAligned(isAligned);
+  }, [rotateAnim, qiblaAngle]);
 
+  // Döndürme Stili (- rotate çünkü telefon dönerken kadran tersine dönmeli)
   const rotateStyle = {
     transform: [
       {
         rotate: rotateAnim.interpolate({
-          inputRange: [-360, 0, 360, 720],
-          outputRange: ['-360deg', '0deg', '360deg', '720deg'],
+          inputRange: [0, 360],
+          outputRange: ['0deg', '-360deg'],
         }),
       },
     ],
   };
 
-  const qiblaNeedle = qiblaAngle !== null ? (qiblaAngle - heading + 360) % 360 : 0;
-  const R = COMPASS_SIZE / 2;
-  const cx = R;
-  const cy = R;
-
-  function needlePoint(angleDeg: number, len: number) {
-    const rad = ((angleDeg - 90) * Math.PI) / 180;
-    return { x: cx + len * Math.cos(rad), y: cy + len * Math.sin(rad) };
-  }
-
-  const qiblaFront = needlePoint(qiblaNeedle, NEEDLE_LENGTH);
-  const qiblaBack = needlePoint(qiblaNeedle + 180, NEEDLE_LENGTH * 0.35);
+  // Kıble ibresinin kadrandaki dönüş açısı
+  const qiblaNeedleStyle = {
+    transform: [{ rotate: `${qiblaAngle || 0}deg` }]
+  };
 
   return (
-    
     <View className="flex-1 bg-neutral-950" style={{ paddingTop: insets.top }}>
       <StatusBar style="light" />
 
-      {/* Header section with back button */}
-      <View className="flex-row w-full items-center px-5 py-4 border-b border-neutral-900">
+      {/* Header */}
+      <View className="flex-row items-center px-5 py-4 border-b border-neutral-900">
         <TouchableOpacity onPress={() => router.back()} className="mr-4">
           <Ionicons name="arrow-back" size={24} color="#10B981" />
         </TouchableOpacity>
-        <Text className="text-white text-xl font-bold">Kıble Yönü</Text>
-      </View>
-
-      {/* Başlık */}
-      <View className="items-center my-8">
-        <Text className="text-[#E8E4D0] text-2xl font-bold tracking-widest">
-          Kıble Yönü
-        </Text>
+        <Text className="text-white text-xl font-bold">Kıble Pusulası</Text>
       </View>
 
       {loading ? (
-        <View className="flex-1 items-center justify-center gap-4">
+        <View className="flex-1 justify-center items-center">
           <ActivityIndicator size="large" color="#10B981" />
-          <Text className="text-vakit-text text-base mt-3">Konum alınıyor…</Text>
+          <Text className="text-gray-400 mt-4">Kıble yönü hesaplanıyor...</Text>
         </View>
-
       ) : error ? (
-        <View className="flex-1 items-center justify-center gap-4">
-          <Text className="text-[#E74C3C] text-4xl">⚠</Text>
-          <Text className="text-[#8892AA] text-base text-center">{error}</Text>
-          <TouchableOpacity
-            className="mt-2 px-6 py-2.5 rounded-full border border-[#C9A84C] bg-[#C9A84C]/10"
-            onPress={() => {}}
-          >
-            <Text className="text-[#C9A84C] font-semibold text-sm">Tekrar Dene</Text>
-          </TouchableOpacity>
+        <View className="flex-1 justify-center items-center px-6">
+          <Ionicons name="warning-outline" size={48} color="#EF4444" />
+          <Text className="text-gray-400 mt-4 text-center">{error}</Text>
         </View>
-
       ) : (
-        <>
-          {/* Pusula kapsayıcısı — dinamik boyutlar style prop ile verilir */}
-          <View
-            className="items-center justify-center relative"
-            style={{ width: COMPASS_SIZE + 70, height: COMPASS_SIZE + 70 }}
-          >
-            {/* Hizalanma halkası */}
-            <Animated.View
-              className="absolute border-[3px] border-[#C9A84C]"
-              style={{
-                width: COMPASS_SIZE + 18,
-                height: COMPASS_SIZE + 18,
-                borderRadius: (COMPASS_SIZE + 18) / 2,
-                opacity: aligned ? glowAnim : 0,
-              }}
-            />
+        <View className="flex-1 items-center justify-center">
+          
+          {/* DURUM MESAJI */}
+          <Text className={`text-2xl font-bold mb-10 tracking-widest ${aligned ? 'text-vakit-accent' : 'text-white'}`}>
+            {aligned ? "KIBLEYE DÖNDÜNÜZ" : "CİHAZI ÇEVİRİN"}
+          </Text>
 
-            {/* Dönen kadran */}
-            <Animated.View
-              className="absolute"
-              style={[{ width: COMPASS_SIZE, height: COMPASS_SIZE }, rotateStyle]}
-            >
-              <Svg width={COMPASS_SIZE} height={COMPASS_SIZE}>
-                <Circle cx={cx} cy={cy} r={R - 4} fill="#171717" stroke="#10B981" strokeWidth={1.5} />
-
-                {Array.from({ length: 72 }, (_, i) => {
-                  const deg = i * 5;
-                  const isMain = deg % 90 === 0;
-                  const isMid = deg % 45 === 0;
-                  const rad = ((deg - 90) * Math.PI) / 180;
-                  const outer = R - 6;
-                  const inner = isMain ? R - 22 : isMid ? R - 18 : R - 14;
-                  return (
-                    <Line
-                      key={deg}
-                      x1={cx + outer * Math.cos(rad)}
-                      y1={cy + outer * Math.sin(rad)}
-                      x2={cx + inner * Math.cos(rad)}
-                      y2={cy + inner * Math.sin(rad)}
-                      stroke={isMain ? '#C9A84C' : isMid ? '#6B6B8A' : '#3A3A5A'}
-                      strokeWidth={isMain ? 2 : 1}
-                    />
-                  );
-                })}
-
-                {[
-                  { label: 'K', deg: 0, color: '#E74C3C' },
-                  { label: 'G', deg: 180, color: '#C9A84C' },
-                  { label: 'D', deg: 90, color: '#8892AA' },
-                  { label: 'B', deg: 270, color: '#8892AA' },
-                ].map(({ label, deg, color }) => {
-                  const rad = ((deg - 90) * Math.PI) / 180;
-                  const r2 = R - 32;
-                  return (
-                    <SvgText
-                      key={label}
-                      x={cx + r2 * Math.cos(rad)}
-                      y={cy + r2 * Math.sin(rad) + 5}
-                      textAnchor="middle"
-                      fill={color}
-                      fontSize={16}
-                      fontWeight="700"
-                    >
-                      {label}
-                    </SvgText>
-                  );
-                })}
-
-                <Circle cx={cx} cy={cy} r={R * 0.55} fill="none" stroke="#10B981" strokeWidth={1} />
-               
+          {/* PUSULA ANA KUTUSU */}
+          <View className="items-center justify-center relative" style={{ width: COMPASS_SIZE, height: COMPASS_SIZE }}>
+            
+            {/* Dış Çerçeve ve Kuzey/Güney Harfleri (Dönen Kısım) */}
+            <Animated.View className="absolute items-center justify-center w-full h-full" style={rotateStyle}>
+              <Svg width={COMPASS_SIZE} height={COMPASS_SIZE} viewBox="0 0 100 100">
+                {/* Dış Halka */}
+                <Circle cx="50" cy="50" r="48" stroke="#262626" strokeWidth="2" fill="none" />
+                <Circle cx="50" cy="50" r="40" stroke="#171717" strokeWidth="8" fill="none" />
+                
+                {/* Kuzey Oku ve N harfi */}
+                <Path d="M48 10 L50 4 L52 10 Z" fill="#EF4444" />
+                <SvgText x="50" y="22" fill="#94A3B8" fontSize="10" fontWeight="bold" textAnchor="middle">N</SvgText>
+                
+                {/* E, S, W harfleri */}
+                <SvgText x="85" y="53" fill="#64748B" fontSize="8" fontWeight="bold" textAnchor="middle">E</SvgText>
+                <SvgText x="50" y="85" fill="#64748B" fontSize="8" fontWeight="bold" textAnchor="middle">S</SvgText>
+                <SvgText x="15" y="53" fill="#64748B" fontSize="8" fontWeight="bold" textAnchor="middle">W</SvgText>
               </Svg>
+
+              {/* KIBLE İBRESİ (Kadranın İçinde Sabit Kıble Açısına Bakan Ok) */}
+              <View className="absolute w-full h-full items-center justify-center" style={qiblaNeedleStyle}>
+                {/* İbrenin çubuğu */}
+                <View className="w-1 h-32 bg-vakit-accent rounded-full absolute top-8" />
+                {/* İbrenin başı (Kabe temsili elmas şekli) */}
+                <View className="w-6 h-6 bg-vakit-accent absolute top-6" style={{ transform: [{ rotate: '45deg' }] }} />
+              </View>
             </Animated.View>
 
-            {/* Kıble ibresi */}
-            <View
-              className="absolute z-10"
-              style={{ width: COMPASS_SIZE, height: COMPASS_SIZE }}
-            >
-              <Svg width={COMPASS_SIZE} height={COMPASS_SIZE}>
-                <Line
-                  x1={cx} y1={cy} x2={qiblaFront.x} y2={qiblaFront.y}
-                  stroke="#00000060" strokeWidth={5} strokeLinecap="round"
-                />
-                <Line
-                  x1={cx} y1={cy} x2={qiblaBack.x} y2={qiblaBack.y}
-                  stroke="#4A4A6A" strokeWidth={4} strokeLinecap="round"
-                />
-                <Line
-                  x1={cx} y1={cy} x2={qiblaFront.x} y2={qiblaFront.y}
-                  stroke="#C9A84C" strokeWidth={3} strokeLinecap="round"
-                />
-                <G transform={`translate(${qiblaFront.x - 10}, ${qiblaFront.y - 10})`}>
-                  <Path
-                    d="M10 2 L18 6 L18 18 L10 22 L2 18 L2 6 Z"
-                    fill={aligned ? '#C9A84C' : '#8B7335'}
-                    stroke={aligned ? '#FFD700' : '#C9A84C'}
-                    strokeWidth={1}
-                  />
-                  <SvgText x={10} y={14} textAnchor="middle" fill="white" fontSize={8} fontWeight="bold">
-                    ك
-                  </SvgText>
-                </G>
-                <Circle cx={cx} cy={cy} r={7} fill="#1A1A2E" stroke="#C9A84C" strokeWidth={2} />
-                <Circle cx={cx} cy={cy} r={3} fill="#C9A84C" />
-              </Svg>
-            </View>
+            {/* Sabit Orta Nokta (Telefonun Merkezini Gösterir) */}
+            <View className="w-4 h-4 bg-neutral-950 rounded-full border-2 border-white absolute z-10" />
           </View>
 
-          {/* Bilgi kartı */}
-          <View className="bg-neutral-900 rounded-2xl p-5 mx-5 mt-7">
-            <View className="flex-row items-center justify-around">
-              <View className="flex-1 items-center">
-                <Text className="text-vakit-muted text-xs tracking-widest uppercase mb-1.5">
-                  Kıble Açısı
-                </Text>
-                <Text className="text-vakit-text text-lg font-bold">
-                  {qiblaAngle !== null ? `${Math.round(qiblaAngle)}°` : '—'}
-                </Text>
+          {/* ALT BİLGİ KARTI */}
+          <View className="bg-neutral-900 rounded-3xl p-6 mt-16 w-11/12 border border-neutral-800">
+            <View className="flex-row justify-between items-center">
+              <View className="items-center flex-1">
+                <Text className="text-gray-500 text-xs font-bold tracking-widest mb-1">KIBLE AÇISI</Text>
+                <Text className="text-white text-2xl font-bold">{Math.round(qiblaAngle || 0)}°</Text>
               </View>
-
-              <View className="w-px h-9 bg-vakit-muted" />
-
-              <View className="flex-1 items-center">
-                <Text className="text-vakit-muted text-xs tracking-widest uppercase mb-1.5">
-                  Konum
-                </Text>
-                <Text className="text-vakit-text text-lg font-bold">
-                  {location
-                    ? `${location.lat.toFixed(2)}°, ${location.lng.toFixed(2)}°`
-                    : '—'}
-                </Text>
+              <View className="w-px h-10 bg-neutral-800" />
+              <View className="items-center flex-1">
+                <Text className="text-gray-500 text-xs font-bold tracking-widest mb-1">BULUNDUĞUNUZ ŞEHİR</Text>
+                {/* İstersen buraya doğrudan Zustand'dan city statini çekip yazdırabilirsin */}
+                <Text className="text-vakit-accent text-lg font-bold">TÜRKİYE</Text>
               </View>
             </View>
           </View>
-
-          {/* Durum badge */}
-          <View
-            className={`mt-5 mx-5 items-center py-3 rounded-3xl ${
-              aligned
-                ? 'bg-neutral-900/10'
-                : 'bg-neutral-900'
-            }`}
-          >
-            <Text
-              className={`text-sm font-semibold tracking-wide ${
-                aligned ? 'text-vakit-text' : 'text-vakit-text'
-              }`}
-            >
-              {aligned ? '✦  Kıble Yönündesiniz  ✦' : 'Cihazı Kıble Yönüne Çevirin'}
-            </Text>
-          </View>
-        </>
+          
+        </View>
       )}
     </View>
   );

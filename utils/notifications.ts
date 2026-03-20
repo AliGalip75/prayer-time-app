@@ -1,44 +1,83 @@
-// utils/notifications.ts
-import * as Notifications from 'expo-notifications';
+import notifee, { 
+  TriggerType, 
+  TimestampTrigger, 
+  AndroidImportance, 
+  AndroidVisibility,
+  AndroidStyle 
+} from '@notifee/react-native';
 
-export async function schedulePrayerNotifications(timings: any, city: string) {
-  // Clear previously scheduled notifications to avoid duplicates
-  await Notifications.cancelAllScheduledNotificationsAsync();
+export async function schedulePrayerNotifications(monthlyData: any[], city: string) {
+  // Clear previous notifications
+  await notifee.cancelAllNotifications();
 
-  if (!timings || !city) return;
+  if (!monthlyData || !city || !Array.isArray(monthlyData)) return;
 
-  const prayers = [
-    { label: 'İmsak', time: timings.Imsak },
-    { label: 'Güneş', time: timings.Sunrise },
-    { label: 'Öğle', time: timings.Dhuhr },
-    { label: 'İkindi', time: timings.Asr },
-    { label: 'Akşam', time: timings.Maghrib },
-    { label: 'Yatsı', time: timings.Isha },
-  ];
+  // Create notification channel
+  const channelId = await notifee.createChannel({
+    id: 'prayer-alerts-v2',
+    name: 'Namaz Vakitleri',
+    importance: AndroidImportance.HIGH, // Makes the notification appear at the top
+    visibility: AndroidVisibility.PUBLIC, // Shows content on lock screen
+    sound: 'default', // Custom ezan sound can be added later (raw)
+  });
 
   const now = new Date();
+  const todayIndex = now.getDate() - 1;
+  const daysToSchedule = monthlyData.slice(todayIndex, todayIndex + 7);
 
-  for (const prayer of prayers) {
-    // Remove timezone strings like " (EEST)" if AlAdhan returns them
-    const cleanTime = prayer.time.split(' ')[0];
-    const [hours, minutes] = cleanTime.split(':').map(Number);
+  for (const dailyData of daysToSchedule) {
+    if (!dailyData || !dailyData.date || !dailyData.timings) continue;
 
-    const scheduledDate = new Date();
-    scheduledDate.setHours(hours, minutes, 0, 0);
+    const dateStr = dailyData.date.gregorian.date;
+    const [day, month, year] = dateStr.split('-').map(Number);
 
-    // Only schedule if the time is in the future for today
-    if (scheduledDate > now) {
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: `${prayer.label} Vakti`,
-          body: `${city.toLocaleUpperCase('tr-TR')} için ${prayer.label} vakti girdi.`,
-          sound: true,
+    const prayers = [
+      { id: '1', label: 'İmsak', time: dailyData.timings.Imsak, color: '#1E293B' }, // Lacivert
+      { id: '2', label: 'Güneş', time: dailyData.timings.Sunrise, color: '#F59E0B' }, // Turuncu
+      { id: '3', label: 'Öğle', time: dailyData.timings.Dhuhr, color: '#10B981' }, // Yeşil
+      { id: '4', label: 'İkindi', time: dailyData.timings.Asr, color: '#10B981' },
+      { id: '5', label: 'Akşam', time: dailyData.timings.Maghrib, color: '#F43F5E' }, // Gül/Kırmızı
+      { id: '6', label: 'Yatsı', time: dailyData.timings.Isha, color: '#4F46E5' }, // İndigo
+    ];
+
+    for (const prayer of prayers) {
+      const cleanTime = prayer.time.split(' ')[0];
+      const [hours, minutes] = cleanTime.split(':').map(Number);
+
+      // The absolute date object for the prayer time
+      const scheduledDate = new Date(year, month - 1, day, hours, minutes, 0, 0);
+
+      if (scheduledDate > now) {
+        const trigger: TimestampTrigger = {
+          type: TriggerType.TIMESTAMP,
+          timestamp: scheduledDate.getTime(),
+        };
+
+        // Schedule the notification
+        await notifee.createTriggerNotification(
+        {
+          id: `test-${Date.now()}`,
+          title: `🕋 ${prayer.label} Vakti`,
+          body: `${city} - ${prayer.label} vakti girdi.`,
+          android: {
+            channelId,
+            color: '#10B981', 
+            largeIcon: require('../assets/images/prayer_rug.jpeg'),
+            // What to do when the notification is pressed
+            importance: AndroidImportance.HIGH,
+            pressAction: {
+              id: 'default',
+            },
+            
+            style: { 
+              type: AndroidStyle.BIGPICTURE, 
+              picture: require('../assets/images/prayer_rug.jpeg'), 
+            },
+          },
         },
-        trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.DATE,
-          date: scheduledDate,
-        },
-      });
+        trigger
+      );
+      }
     }
   }
 }

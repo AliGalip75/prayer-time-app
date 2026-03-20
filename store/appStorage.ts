@@ -1,4 +1,3 @@
-// /store/appStore.ts
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { createMMKV } from 'react-native-mmkv';
@@ -17,9 +16,11 @@ const zustandStorage = {
 
 interface AppState {
   city: string | null;
+  notificationsEnabled: boolean;
   hasCompletedOnboarding: boolean;
   setCity: (city: string) => void;
   completeOnboarding: () => void;
+  setNotificationsEnabled: (value: boolean) => void; // Add this line
 }
 
 export const useAppStore = create<AppState>()(
@@ -27,8 +28,10 @@ export const useAppStore = create<AppState>()(
     (set) => ({
       city: null, // Başlangıçta şehir seçilmemiş
       hasCompletedOnboarding: false, // Onboarding tamamlanmamış
+      notificationsEnabled: true, // Default to true
       setCity: (city) => set({ city }),
       completeOnboarding: () => set({ hasCompletedOnboarding: true }),
+      setNotificationsEnabled: (value) => set({ notificationsEnabled: value }),
     }),
     {
       name: 'vakit-store',
